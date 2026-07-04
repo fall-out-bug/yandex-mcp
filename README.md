@@ -1,47 +1,46 @@
-# yandex-mcp
+# Archived — superseded by aikts/yandex-tracker-mcp
 
-Per-user-credential MCP servers for Yandex services. Each package is a standalone
-[Model Context Protocol](https://modelcontextprotocol.io/) server that lets an
-LLM agent act **within a single user's scope** — the credential presented per call
-defines what the agent can see, never a shared org-wide token.
+**This repository is archived.** Do not use it.
 
-> Status: `packages/tracker-mcp` is the first server (Yandex Tracker v3). Calendar
-> and Mail will follow the same pattern, sharing a core extracted at that point.
+After reading the code of existing Yandex Tracker MCP servers (not just their
+READMEs), we found **[aikts/yandex-tracker-mcp](https://github.com/aikts/yandex-tracker-mcp)**
+is a mature superset of everything built here:
 
-## Why another Yandex MCP?
+- **Standalone per-user OAuth profile** — the same MCP-SDK `OAuthAuthorizationServerProvider`
+  architecture (authorize → Yandex, callback, server-side code exchange, no token
+  passthrough, refresh+rotation+revoke, DCR, RFC 8707), with redis/memory/encrypted
+  stores. (Our `packages/tracker-mcp/src/auth/*` was a less-mature duplicate.)
+- **Gateway / reverse-proxy Bearer passthrough** — reads a per-user Yandex token
+  from `Authorization: Bearer` for deployments where a gateway (e.g. Faust) holds
+  the tokens. Same as our v0.1 HTTP bearer mode.
+- Plus IAM tokens, service-account auth, both `X-Org-ID` / `X-Cloud-Org-ID`,
+  caching, a wide tool surface, elicitation confirmations.
+- **Apache-2.0, Python** (Python is also the language of our agent runtime, Gena).
 
-Existing Yandex Tracker MCP servers take **one** org-wide token (`tracker:read`
-+ `tracker:write`) and expose everything that token can see. That is fine for a
-single developer but wrong for an organization: one credential must not gate
-everyone's data.
+Per the decision gate (reuse established OSS rather than maintain a duplicate),
+we adopt aikts and retire this repo.
 
-This project inverts that: **the user's scope is the user's own credential.**
-The server is a stateless resource layer — it stores no tokens, refreshes
-nothing, and creates no OAuth apps. A product layer (your app, or Faust) obtains
-per-user tokens and hands them to the server per call.
+## What carries over (verified here, still valid for aikts)
 
-## Packages
+These facts were verified while building this repo and apply equally to aikts /
+Tracker v3:
 
-| Package | Service | Status |
-| --- | --- | --- |
-| [`packages/tracker-mcp`](./packages/tracker-mcp) | Yandex Tracker (v3 API) | usable |
+- Tracker OAuth scopes: **`cloud:auth` + `tracker:read` + `tracker:write`**
+  (`cloud:auth` is the one that unblocks Cloud-org access; without it Tracker
+  returns 401 even with the tracker scopes).
+- Cloud-org auth: `Authorization: OAuth <token>` + `X-Cloud-Org-Id: <org-id>`
+  — **direct OAuth, no IAM exchange** (the OAuth→IAM exchange is dead for
+  federated Cloud users on tokens issued after 2026-06-01).
+- Tracker v3 search body is top-level `{query}`; `perPage`/`page` are query params.
 
-## Transports & credentials
+## Reusable dev helpers (not server-specific)
 
-- **stdio + env** — single-user mode for local clients (Claude Desktop, Cursor):
-  `TRACKER_TOKEN`, `TRACKER_ORG_ID`, …
-- **Streamable HTTP + per-request bearer** — multi-user / server-runtime mode:
-  each request carries `Authorization: OAuth <user-token>` + `X-Org-ID`. This is
-  the org-safe mode and the reason this project exists.
+These three scripts in this repo work for **any** Yandex Tracker OAuth setup:
 
-See a package's README for setup.
+- `scripts/fetch-token.ts` — local OAuth code-flow helper to obtain a Tracker
+  access token (run the dance once).
+- `scripts/discover-org.ts` — non-admin Cloud-org id discovery via IAM.
+- `packages/tracker-mcp/scripts/live-probe.ts` — spawn any stdio Tracker MCP and
+  call `get_myself` / `search_issues` live to verify it works.
 
-## Safety boundary
-
-This server is **not** a safety boundary. It faithfully executes Tracker
-operations inside the presented user scope. Confirmation gates, product-level
-audit, and rate budgets belong to the calling product, not this server.
-
-## License
-
-MIT.
+Keep them as references; they are not published as a package.
