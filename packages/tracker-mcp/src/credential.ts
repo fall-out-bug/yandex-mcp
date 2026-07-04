@@ -67,6 +67,26 @@ export function credentialFromHeaders(headers: Headers): TrackerCredential | nul
   }
 }
 
+/**
+ * Build a credential from a Yandex access token resolved server-side by the
+ * OAuth gate (standalone profile). The org id / header still come from env
+ * (`TRACKER_ORG_ID` / `TRACKER_ORG_HEADER`), since those are per-deployment.
+ * The token uses the `OAuth` scheme (Yandex direct — no IAM exchange).
+ */
+export function credentialFromYandexToken(yandexAccessToken: string): TrackerCredential | null {
+  if (!yandexAccessToken) return null
+  const orgId = process.env.TRACKER_ORG_ID?.trim()
+  if (!orgId) return null
+  const header = process.env.TRACKER_ORG_HEADER?.trim()
+  return {
+    token: yandexAccessToken,
+    orgId,
+    orgHeader: header === "X-Cloud-Org-ID" ? "X-Cloud-Org-ID" : "X-Org-ID",
+    baseUrl: process.env.TRACKER_BASE_URL?.trim() || DEFAULT_BASE_URL,
+    authScheme: "OAuth",
+  }
+}
+
 /** Run a handler with a request-scoped credential (used by the HTTP transport). */
 export function withCredential<T>(cred: TrackerCredential, fn: () => Promise<T>): Promise<T> {
   return requestCredential.run(cred, fn)

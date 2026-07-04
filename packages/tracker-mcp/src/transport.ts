@@ -1,70 +1,83 @@
 import http from "node:http"
+import express, { type Express, type Request, type Response } from "express"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { credentialFromHeaders, withCredential, type TrackerCredential } from "./credential.js"
+import { TrackerOAuthProvider } from "./auth/provider.js"
+import { mountAuthRoutes, createTokenGate, readOAuthConfig } from "./auth/router.js"
 
 /** stdio: single-user; the credential comes from env (see getCredential). */
 export async function runStdio(server: McpServer, transport: Transport): Promise<void> {
   await server.connect(transport)
 }
 
-function toHeaders(raw: http.IncomingHttpHeaders): Headers {
+function credFromExpressReq(req: Request): TrackerCredential | null {
   const headers = new Headers()
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value === "string") headers.set(key, value)
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (typeof v === "string") headers.set(k, v)
   }
-  return headers
+  return credentialFromHeaders(headers)
 }
 
-function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let data = ""
-    req.on("data", (chunk) => {
-      data += chunk
-    })
-    req.on("end", () => resolve(data))
-    req.on("error", reject)
-  })
+function corsMiddleware(req: Request, res: Response, next: () => void): void {
+  res.setHeader("Access-Control-Allow-Origin", "*")
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "authorization, content-type, x-org-id, x-cloud-org-id, mcp-session-id",
+  )
+  res.setHeader("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS")
+  if (req.method === "OPTIONS") {
+    res.status(204).end()
+    return
+  }
+  next()
 }
 
 /**
- * Stateless HTTP transport for ORG / multi-user use. Each request is isolated:
- * a fresh server+transport is built per request, and the credential is taken
- * from the request's Authorization + X-Org-ID headers — i.e. the calling user's
- * own scope. No token is stored.
+ * Build (but do not listen on) the HTTP express app. Shared by `runHttp` and the
+ * in-process tests so both exercise identical wiring.
+ *
+ * - With an OAuth provider: /mcp is gated by a valid MCP bearer token (resolved
+ *   server-side to the user's Yandex credential); the authorization server,
+ *   metadata, DCR and Yandex callback routes are mounted.
+ * - Without: v0.1 per-request-bearer mode (each request carries Authorization +
+ *   X-Org-ID for one user's scope). Kept for the faust-deployed profile.
  */
-export async function runHttp(serverFactory: () => McpServer): Promise<void> {
-  const port = Number(process.env.MCP_HTTP_PORT ?? "3009")
-  const httpServer = http.createServer(async (req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*")
-    res.setHeader("Access-Control-Allow-Headers", "authorization, content-type, x-org-id, x-cloud-org-id, mcp-session-id")
-    res.setHeader("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS")
-    if (req.method === "OPTIONS") {
-      res.writeHead(204)
-      res.end()
-      return
-    }
-    if (req.url !== "/mcp" || req.method !== "POST") {
-      res.writeHead(404)
-      res.end("Not found. POST JSON-RPC to /mcp.")
-      return
-    }
+export function buildHttpApp(serverFactory: () => McpServer, opts: { oauth?: TrackerOAuthProvider } = {}): Express {
+  const app = express()
+  app.use(corsMiddleware)
 
-    const cred: TrackerCredential | null = credentialFromHeaders(toHeaders(req.headers))
+  if (opts.oauth) {
+    mountAuthRoutes(app, opts.oauth)
+    const gate = createTokenGate(opts.oauth)
+    app.post("/mcp", express.json(), gate, mcpHandler(serverFactory, "oauth"))
+  } else {
+    app.post("/mcp", express.json(), mcpHandler(serverFactory, "bearer"))
+  }
+
+  app.use((_req, res) => {
+    res.status(404).send("Not found. POST JSON-RPC to /mcp.")
+  })
+  return app
+}
+
+/**
+ * Per-request MCP handler: build a fresh stateless server+transport and run the
+ * request inside the resolved user-credential scope. In OAuth mode the credential
+ * was resolved by the gate; in bearer mode it comes from the request headers.
+ */
+function mcpHandler(serverFactory: () => McpServer, mode: "oauth" | "bearer") {
+  return async (req: Request, res: Response): Promise<void> => {
+    const cred: TrackerCredential | null =
+      mode === "oauth"
+        ? (req as unknown as { trackerCredential?: TrackerCredential }).trackerCredential ?? null
+        : credFromExpressReq(req)
+
     if (!cred) {
-      res.writeHead(401)
-      res.end("Missing credential. Send 'Authorization: OAuth <token>' (or Bearer) and 'X-Org-ID' headers.")
-      return
-    }
-
-    const body = await readBody(req)
-    let parsed: Record<string, unknown>
-    try {
-      parsed = JSON.parse(body)
-    } catch {
-      res.writeHead(400)
-      res.end("Invalid JSON body")
+      // Bearer mode only: OAuth mode is gated upstream and always has a credential.
+      res.setHeader("WWW-Authenticate", "Bearer")
+      res.status(401).send("Missing credential. Send 'Authorization: OAuth <token>' (or Bearer) and 'X-Org-ID' headers.")
       return
     }
 
@@ -72,18 +85,32 @@ export async function runHttp(serverFactory: () => McpServer): Promise<void> {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     try {
       await srv.connect(transport)
-      // Run the whole request inside the user's credential scope.
-      await withCredential(cred, () => transport.handleRequest(req, res, parsed))
+      await withCredential(cred, () => transport.handleRequest(req, res, req.body))
     } catch (err) {
       if (!res.headersSent) {
-        res.writeHead(500)
-        res.end(`MCP handling error: ${err instanceof Error ? err.message : String(err)}`)
+        res.status(500).send(`MCP handling error: ${err instanceof Error ? err.message : String(err)}`)
       }
     } finally {
       await srv.close().catch(() => undefined)
     }
-  })
+  }
+}
 
-  await new Promise<void>((resolve) => httpServer.listen(port, resolve))
-  process.stderr.write(`[tracker-mcp] HTTP (multi-user) listening on http://127.0.0.1:${port}/mcp\n`)
+/**
+ * HTTP transport entrypoint. In OAuth mode the standalone profile is active
+ * (own AS + per-user Yandex tokens kept server-side); otherwise v0.1 bearer mode.
+ */
+export async function runHttp(serverFactory: () => McpServer): Promise<void> {
+  const port = Number(process.env.MCP_HTTP_PORT ?? "3009")
+  const oauthEnv = readOAuthConfig()
+  const oauth = oauthEnv ? new TrackerOAuthProvider(oauthEnv) : undefined
+
+  const app = buildHttpApp(serverFactory, { oauth })
+  const server = http.createServer(app)
+  await new Promise<void>((resolve) => server.listen(port, resolve))
+  process.stderr.write(
+    oauth
+      ? `[tracker-mcp] HTTP (OAuth standalone) listening on http://127.0.0.1:${port}/mcp\n`
+      : `[tracker-mcp] HTTP (multi-user bearer) listening on http://127.0.0.1:${port}/mcp\n`,
+  )
 }
