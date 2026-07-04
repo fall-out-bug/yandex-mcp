@@ -31,7 +31,7 @@ if (!token) {
 }
 const orgId = process.env.TRACKER_ORG_ID ?? "bpfd8mfc069c147a91r9"
 const orgHeader = process.env.TRACKER_ORG_HEADER ?? "X-Cloud-Org-Id"
-const search = process.env.TRACKER_SEARCH ?? "Assignee: me() Resolution: Empty()"
+const search = process.env.TRACKER_SEARCH ?? "Assignee: me()"
 
 const watchdog = setTimeout(() => {
   console.error("\n[probe] timed out after 25s")

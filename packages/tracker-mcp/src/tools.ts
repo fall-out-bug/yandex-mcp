@@ -71,9 +71,9 @@ export function registerTools(server: McpServer): void {
 
   server.tool(
     "search_issues",
-    "Search Tracker issues using the Tracker query language (the same syntax as the Tracker UI search), e.g. 'Queue: MYQUEUE Assignee: me() Resolution: Empty()'. Use for any 'find/show/list my tasks' intent. Results are paginated with an opaque cursor — if a next cursor is returned, call again with cursor to continue. Do not invent query syntax.",
+    "Search Tracker issues using the Tracker query language (the same syntax as the Tracker UI search), e.g. 'Assignee: me()' or 'Queue: MYQUEUE Assignee: me()'. Use for any 'find/show/list my tasks' intent. Results are paginated with an opaque cursor — if a next cursor is returned, call again with cursor to continue. If a query is rejected (422), simplify it — do not invent syntax.",
     {
-      query: z.string().describe("Tracker query language string, e.g. 'Assignee: me() Resolution: Empty()'"),
+      query: z.string().describe("Tracker query language string, e.g. 'Assignee: me()'"),
       cursor: z.string().optional().describe("Opaque cursor returned by a previous search_issues call to fetch the next page"),
     },
     async ({ query, cursor }) => {
