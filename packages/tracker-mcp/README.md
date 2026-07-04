@@ -23,15 +23,24 @@ per call.
 
 ## Get a Tracker token (once, per user)
 
-1. Create an OAuth app at <https://oauth.yandex.ru/> with scopes
-   **`tracker:read`** and **`tracker:write`** (note the Client ID).
+1. Create an OAuth app at <https://oauth.yandex.ru/>. Required scopes:
+   - **`cloud:auth`** — mandatory for **Cloud organizations** (without it Tracker
+     returns `401 authorization-required` even with the tracker scopes; with it,
+     direct OAuth works — no IAM exchange needed).
+   - **`tracker:read`** and **`tracker:write`**.
+   Note the Client ID.
 2. Authorize in the browser (implicit flow):
-   `https://oauth.yandex.com/authorize?response_type=token&client_id=YOUR_CLIENT_ID`
+   `https://oauth.yandex.com/authorize?response_type=token&client_id=YOUR_CLIENT_ID&scope=cloud:auth%20tracker:read%20tracker:write`
 3. Copy the `access_token` from the redirect.
-4. Find your org id under Tracker → Administration → Organisations.
+4. Find your org id and which header it needs. **Cloud orgs** use
+   `X-Cloud-Org-Id`; **Yandex 360 orgs** use `X-Org-Id`. The id is the same
+   value either way. Tip: open Tracker in a browser, DevTools → Network → look
+   at the `X-Org-Id`/`X-Cloud-Org-Id` request header the UI sends.
 
-> In multi-user mode your application performs this flow per user and passes
-> the resulting token per request. This server never runs it.
+> Note: for federated Cloud users, the OAuth→IAM token exchange is **not
+> supported** by Yandex (tokens after 2026-06-01). Use direct OAuth (the
+> `OAuth` scheme), not the IAM `Bearer` scheme. Set `TRACKER_ORG_HEADER` and
+> `TRACKER_ORG_ID` accordingly.
 
 ## Install & run
 
