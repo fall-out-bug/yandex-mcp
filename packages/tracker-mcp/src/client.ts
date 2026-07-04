@@ -94,6 +94,12 @@ export class TrackerClient {
   private async request<T>(method: string, path: string, body?: unknown, query?: Record<string, string>): Promise<T> {
     const qs = query ? "?" + new URLSearchParams(query).toString() : ""
     const url = `${this.cred.baseUrl}${path}${qs}`
+    if (process.env.TRACKER_DEBUG) {
+      const h = this.headers()
+      const redacted = { ...h, Authorization: `${this.cred.authScheme} <${this.cred.token.length} chars>` }
+      process.stderr.write(`[tracker-debug] ${method} ${url}\n[tracker-debug] headers=${JSON.stringify(redacted)}\n`)
+      if (body !== undefined) process.stderr.write(`[tracker-debug] body=${JSON.stringify(body)}\n`)
+    }
     try {
       const resp = await fetch(url, {
         method,

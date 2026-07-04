@@ -18,8 +18,8 @@ export const DEFAULT_BASE_URL = "https://api.tracker.yandex.net/v3"
 export type TrackerCredential = {
   token: string
   orgId: string
-  /** "X-Org-ID" for Yandex 360 orgs, "X-Cloud-Org-ID" for Yandex Cloud orgs. */
-  orgHeader: "X-Org-ID" | "X-Cloud-Org-ID"
+  /** Org header name, verbatim from TRACKER_ORG_HEADER (default "X-Org-ID"). HTTP headers are case-insensitive on the wire, so "X-Cloud-Org-Id" / "X-Cloud-Org-ID" are equivalent. */
+  orgHeader: string
   baseUrl: string
   authScheme: "OAuth" | "Bearer"
 }
@@ -35,7 +35,7 @@ export function readEnvCredential(): TrackerCredential | null {
   return {
     token,
     orgId,
-    orgHeader: header === "X-Cloud-Org-ID" ? "X-Cloud-Org-ID" : "X-Org-ID",
+    orgHeader: header || "X-Org-ID",
     baseUrl: process.env.TRACKER_BASE_URL?.trim() || DEFAULT_BASE_URL,
     authScheme: process.env.TRACKER_AUTH_SCHEME?.trim() === "Bearer" ? "Bearer" : "OAuth",
   }
@@ -81,7 +81,7 @@ export function credentialFromYandexToken(yandexAccessToken: string): TrackerCre
   return {
     token: yandexAccessToken,
     orgId,
-    orgHeader: header === "X-Cloud-Org-ID" ? "X-Cloud-Org-ID" : "X-Org-ID",
+    orgHeader: header || "X-Org-ID",
     baseUrl: process.env.TRACKER_BASE_URL?.trim() || DEFAULT_BASE_URL,
     authScheme: "OAuth",
   }
