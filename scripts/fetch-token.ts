@@ -19,7 +19,7 @@ import http from "node:http"
 const CLIENT_ID = process.env.CLIENT_ID ?? ""
 const CLIENT_SECRET = process.env.CLIENT_SECRET ?? ""
 const PORT = Number(process.env.PORT ?? 8787)
-const SCOPES = process.env.SCOPES ?? "tracker:read tracker:write"
+const SCOPES = process.env.SCOPES ?? "cloud:auth tracker:read tracker:write"
 const REDIRECT_URI = `http://localhost:${PORT}/callback`
 
 if (!CLIENT_ID || !CLIENT_SECRET) {
