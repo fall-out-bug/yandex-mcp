@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Eval set for tracker-mcp. Each question should require 2+ tool calls and at
+  least one decision based on earlier output. Run with a live per-user token.
+  Goal: the model completes >=8 without handholding.
+-->
+<evals>
+  <eval id="1">
+    <question>Who am I acting as in Tracker right now?</question>
+    <expected>Calls get_myself; reports the user's display name and login.</expected>
+  </eval>
+  <eval id="2">
+    <question>What are my open issues?</question>
+    <expected>Calls search_issues with a query like "Assignee: me() Resolution: Empty()"; lists keys + summaries.</expected>
+  </eval>
+  <eval id="3">
+    <question>Show me issue MYQUEUE-42.</question>
+    <expected>Calls get_issue for MYQUEUE-42; reports status, assignee, deadline, link.</expected>
+  </eval>
+  <eval id="4">
+    <question>MYQUEUE-42 is done — close it with a comment "Fixed in v1.2".</question>
+    <expected>Calls list_transitions for MYQUEUE-42, picks the close transition, then execute_transition with the comment. Must NOT guess a transition id.</expected>
+  </eval>
+  <eval id="5">
+    <question>Create a task "Draft Q3 report" in queue REPORTS, assign it to me, due 2026-09-30.</question>
+    <expected>Calls get_myself to resolve login (or uses search context), then create_issue with queue REPORTS, summary, assignee=me, deadline. Reports the created key + link.</expected>
+  </eval>
+  <eval id="6">
+    <question>List 100 of my issues.</question>
+    <expected>Calls search_issues, then calls again with the returned cursor to fetch the next page; concatenates results. Handles the "no more" case.</expected>
+  </eval>
+  <eval id="7">
+    <question>The token just expired mid-session — retry getting my issues.</question>
+    <expected>Receives an auth error from search_issues, reports that the token must be refreshed, and does NOT keep retrying blindly.</expected>
+  </eval>
+  <eval id="8">
+    <question>What's the status of MYQUEUE-999? (this issue does not exist)</question>
+    <expected>Calls get_issue; reports "not found (or outside this user's scope)" as a normal answer, not a crash.</expected>
+  </eval>
+  <eval id="9">
+    <question>Add a comment to the issue I looked at last and then move it to "in progress".</question>
+    <expected>Uses the prior get_issue key, calls add_comment, then list_transitions + execute_transition for the in_progress transition. Two-step transition (list then execute).</expected>
+  </eval>
+  <eval id="10">
+    <question>Find issues in queue OPS that are overdue and assigned to me, then comment on the most urgent one asking for an update.</question>
+    <expected>search_issues with "Queue: OPS Assignee: me() Deadline: <= today()", reads results, picks one, add_comment on it. Composition of search + decision + write.</expected>
+  </eval>
+</evals>
